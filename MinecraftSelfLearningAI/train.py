@@ -20,7 +20,6 @@ from replay_buffer import ReplayBuffer
 # Configuration & Reproducibility
 # ---------------------------------------------------------------------------
 MODEL_DIR = "trained_models"
-LOAD_PATH = os.path.join(MODEL_DIR, "model_ep8000.pth")
 MISTAKE_MARGIN = 0.05
 EPISODES = 10_000
 
@@ -101,17 +100,30 @@ def evaluate(agent: DQNAgent, episodes: int) -> tuple[float, float, float, float
     return avg_reward, win_rate, avg_steps, avg_regret
 
 
+def _load_latest_checkpoint(agent: DQNAgent) -> int:
+    """Load the latest checkpoint if present and return the next episode."""
+    os.makedirs(MODEL_DIR, exist_ok=True)
+    checkpoints = [
+        f
+        for f in os.listdir(MODEL_DIR)
+        if f.startswith("model_ep") and f.endswith(".pth")
+    ]
+    if not checkpoints:
+        return 1
+    checkpoints.sort(key=lambda x: int(x[len("model_ep") : -len(".pth")]))
+    latest = checkpoints[-1]
+    agent.load(os.path.join(MODEL_DIR, latest))
+    return int(latest[len("model_ep") : -len(".pth")]) + 1
+
+
 def train() -> None:
     env = DummyMinecraftEnv()
     state_dim = len(env.reset())
     action_dim = 4
 
     agent = DQNAgent(state_dim, action_dim, gamma=GAMMA)
-    if os.path.exists(LOAD_PATH):
-        agent.load(LOAD_PATH)
+    start_ep = _load_latest_checkpoint(agent)
     buffer = ReplayBuffer(BUFFER_SIZE, gamma=GAMMA, n_step=N_STEPS)
-
-    os.makedirs(MODEL_DIR, exist_ok=True)
 
     rewards: list[float] = []
 
@@ -134,7 +146,7 @@ def train() -> None:
                 ["episode", "avg_reward", "win_rate", "avg_steps"]
             )
 
-    for ep in range(1, EPISODES + 1):
+    for ep in range(start_ep, start_ep + EPISODES):
         state = env.reset()
         total_reward = 0.0
         done = False
