@@ -16,7 +16,8 @@ from replay_buffer import ReplayBuffer
 # ---------------------------------------------------------------------------
 # Configuration & Reproducibility
 # ---------------------------------------------------------------------------
-LOAD_PATH = "model_ep8000.pth"
+MODEL_DIR = "trained_models"
+LOAD_PATH = os.path.join(MODEL_DIR, "model_ep8000.pth")
 WIN_SAVE_PREFIX = "model_win_ep"
 MISTAKE_MARGIN = 0.05
 EPISODES = 100_000
@@ -98,6 +99,8 @@ def train() -> None:
     agent.load(LOAD_PATH)
     buffer = ReplayBuffer(BUFFER_SIZE)
 
+    os.makedirs(MODEL_DIR, exist_ok=True)
+
     rewards: list[float] = []
 
     train_csv = "train_metrics.csv"
@@ -162,7 +165,7 @@ def train() -> None:
         avg_regret = float(np.mean(regrets)) if regrets else 0.0
         win = int(reward > 0)
         if win:
-            agent.save(f"{WIN_SAVE_PREFIX}{ep}.pth")
+            agent.save(os.path.join(MODEL_DIR, f"{WIN_SAVE_PREFIX}{ep}.pth"))
 
         rewards.append(total_reward)
         with open(train_csv, "a", newline="") as f:
@@ -183,13 +186,13 @@ def train() -> None:
                 f"Eval Avg Steps: {eval_avg_steps:.2f} Eval Avg Regret: {eval_avg_regret:.3f}"
             )
             agent.update_target()
-            agent.save(f"model_ep{ep}.pth")
+            agent.save(os.path.join(MODEL_DIR, f"model_ep{ep}.pth"))
             with open(eval_csv, "a", newline="") as f:
                 csv.writer(f).writerow(
                     [ep, eval_avg_reward, eval_win_rate, eval_avg_steps, eval_avg_regret]
                 )
 
-    agent.save("model_final.pth")
+    agent.save(os.path.join(MODEL_DIR, "model_final.pth"))
 
     plt.plot(rewards)
     plt.xlabel("Episode")
