@@ -25,7 +25,7 @@ EPISODES = 10_000
 
 # Replay buffer and optimisation parameters
 BUFFER_SIZE = 100_000
-BATCH_SIZE = 64
+BATCH_SIZE = 64  # Ensure the batch size is large enough (at least 2)
 GAMMA = 0.995
 N_STEPS = 3
 
@@ -61,7 +61,14 @@ def temperature_by_episode(ep: int) -> float:
 
 
 def evaluate(agent: DQNAgent, episodes: int) -> tuple[float, float, float, float]:
-    """Run evaluation episodes without exploration."""
+    """Run evaluation episodes without exploration.
+
+    BatchNorm layers require special handling during evaluation. Setting the
+    policy network to evaluation mode ensures that running statistics are used
+    instead of per-batch statistics, which avoids errors when the batch size is
+    one.
+    """
+    agent.policy_net.eval()
     env = DummyMinecraftEnv()
 
     rewards: list[float] = []
@@ -97,6 +104,7 @@ def evaluate(agent: DQNAgent, episodes: int) -> tuple[float, float, float, float
     win_rate = wins / episodes if episodes else 0.0
     avg_steps = float(np.mean(steps_list)) if steps_list else 0.0
     avg_regret = float(np.mean(regrets)) if regrets else 0.0
+    agent.policy_net.train()
     return avg_reward, win_rate, avg_steps, avg_regret
 
 

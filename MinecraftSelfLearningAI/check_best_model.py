@@ -18,8 +18,13 @@ EVAL_EPISODES = 10
 
 
 def evaluate(agent: DQNAgent, episodes: int) -> tuple[float, float, float]:
-    """Run evaluation episodes without exploration."""
+    """Run evaluation episodes without exploration.
 
+    Puts the policy network into evaluation mode so that BatchNorm layers use
+    running statistics rather than per-batch statistics.
+    """
+
+    agent.policy_net.eval()
     env = DummyMinecraftEnv()
     rewards: list[float] = []
     steps_list: list[int] = []
@@ -44,6 +49,7 @@ def evaluate(agent: DQNAgent, episodes: int) -> tuple[float, float, float]:
     avg_reward = float(np.mean(rewards)) if rewards else float("nan")
     win_rate = wins / episodes if episodes else float("nan")
     avg_steps = float(np.mean(steps_list)) if steps_list else float("nan")
+    agent.policy_net.train()
     return avg_reward, win_rate, avg_steps
 
 
