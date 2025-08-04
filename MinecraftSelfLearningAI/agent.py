@@ -128,11 +128,21 @@ class DQNAgent:
         return int(np.random.choice(self.action_dim, p=probs))
 
     def predict_q(self, state: Tuple[int, ...]) -> np.ndarray:
-        """Return Q-values for a given state as a NumPy array."""
+        """Return Q-values for a given state as a NumPy array.
+
+        The network contains BatchNorm layers which require ``eval`` mode when
+        operating on a single sample.  We temporarily switch the network to
+        evaluation mode and restore its previous state afterwards so that this
+        method can be used safely during both training and evaluation.
+        """
 
         state_t = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+        was_training = self.policy_net.training
+        self.policy_net.eval()
         with torch.no_grad():
             q_values = self.policy_net(state_t).cpu().numpy()[0]
+        if was_training:
+            self.policy_net.train()
         return q_values
 
     # ------------------------------------------------------------------
@@ -199,6 +209,8 @@ class DQNAgent:
 
     def load(self, path: str) -> None:
         state_dict = torch.load(path, map_location=self.device)
-        self.policy_net.load_state_dict(state_dict)
+        missing, unexpected = self.policy_net.load_state_dict(state_dict, strict=False)
+        if missing or unexpected:
+            print(f"Warning: missing keys {missing}, unexpected keys {unexpected}")
         self.update_target()
 
