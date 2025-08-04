@@ -60,8 +60,6 @@ def train() -> None:
             avg_reward = np.mean(rewards[-1000:])
             print(f"Episode {ep} - Avg Reward: {avg_reward:.3f}")
             agent.update_target()
-
-        if ep % 10_000 == 0:
             agent.save(f"model_ep{ep}.pth")
 
     # Save final model
