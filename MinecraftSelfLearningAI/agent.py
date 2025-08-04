@@ -3,7 +3,7 @@
 This module provides a slightly deeper network than the original
 implementation and incorporates a number of stabilisation techniques:
 
-* Three fully-connected layers with Batch Normalisation for richer feature
+* Four fully-connected layers with Batch Normalisation for richer feature
   extraction.  The network remains small enough to train quickly on CPU
   machines such as Windows laptops.
 * Optional LSTM layer for environments that require sequence modelling.
@@ -38,6 +38,9 @@ class DQN(nn.Module):
             nn.BatchNorm1d(hidden),
             nn.ReLU(),
             nn.Linear(hidden, 64),
+            nn.BatchNorm1d(64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
             nn.BatchNorm1d(64),
             nn.ReLU(),
         )

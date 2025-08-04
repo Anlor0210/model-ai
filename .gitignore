@@ -1,0 +1,3 @@
+MinecraftSelfLearningAI/trained_models/
+MinecraftSelfLearningAI/*.csv
+MinecraftSelfLearningAI/__pycache__/
