@@ -4,7 +4,10 @@ import csv
 import os
 import random
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except Exception:  # pragma: no cover - optional dependency
+    plt = None
 import numpy as np
 import torch
 
@@ -18,9 +21,9 @@ from replay_buffer import ReplayBuffer
 # ---------------------------------------------------------------------------
 MODEL_DIR = "trained_models"
 LOAD_PATH = os.path.join(MODEL_DIR, "model_ep8000.pth")
-WIN_SAVE_PREFIX = "model_win_ep"
 MISTAKE_MARGIN = 0.05
-EPISODES = 100_000
+# Train for 10k episodes, saving checkpoints every 1000 episodes
+EPISODES = 10_000
 
 BUFFER_SIZE = 10_000
 BATCH_SIZE = 64
@@ -28,7 +31,7 @@ GAMMA = 0.99
 
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY_EPISODES = 50_000
+EPS_DECAY_EPISODES = 10_000
 
 EVAL_INTERVAL = 1000
 EVAL_EPISODES = 10
@@ -96,7 +99,8 @@ def train() -> None:
     action_dim = 4
 
     agent = DQNAgent(state_dim, action_dim, gamma=GAMMA)
-    agent.load(LOAD_PATH)
+    if os.path.exists(LOAD_PATH):
+        agent.load(LOAD_PATH)
     buffer = ReplayBuffer(BUFFER_SIZE)
 
     os.makedirs(MODEL_DIR, exist_ok=True)
@@ -111,18 +115,15 @@ def train() -> None:
                 [
                     "episode",
                     "total_reward",
-                    "steps",
                     "avg_td_error",
-                    "avg_regret",
                     "mistakes",
                     "epsilon",
-                    "win",
                 ]
             )
     if not os.path.exists(eval_csv):
         with open(eval_csv, "w", newline="") as f:
             csv.writer(f).writerow(
-                ["episode", "avg_reward", "win_rate", "avg_steps", "avg_regret"]
+                ["episode", "avg_reward", "win_rate", "avg_steps"]
             )
 
     for ep in range(1, EPISODES + 1):
@@ -131,7 +132,6 @@ def train() -> None:
         done = False
         steps = 0
         mistakes = 0
-        regrets: list[float] = []
         td_errors: list[float] = []
 
         epsilon = epsilon_by_episode(ep)
@@ -145,8 +145,6 @@ def train() -> None:
 
             q_sa = float(q_values[action])
             max_q = float(np.max(q_values))
-            regret = max_q - q_sa
-            regrets.append(regret)
             if q_sa < max_q - MISTAKE_MARGIN:
                 mistakes += 1
 
@@ -162,43 +160,40 @@ def train() -> None:
                 td_errors.append(td_error)
 
         avg_td_error = float(np.mean(td_errors)) if td_errors else 0.0
-        avg_regret = float(np.mean(regrets)) if regrets else 0.0
-        win = int(reward > 0)
-        if win:
-            agent.save(os.path.join(MODEL_DIR, f"{WIN_SAVE_PREFIX}{ep}.pth"))
 
         rewards.append(total_reward)
         with open(train_csv, "a", newline="") as f:
             csv.writer(f).writerow(
-                [ep, total_reward, steps, avg_td_error, avg_regret, mistakes, epsilon, win]
+                [ep, total_reward, avg_td_error, mistakes, epsilon]
             )
 
         if ep % EVAL_INTERVAL == 0:
             avg_reward_last = float(np.mean(rewards[-EVAL_INTERVAL:]))
-            eval_avg_reward, eval_win_rate, eval_avg_steps, eval_avg_regret = evaluate(
+            eval_avg_reward, eval_win_rate, eval_avg_steps, _ = evaluate(
                 agent, EVAL_EPISODES
             )
             print(
                 f"Episode {ep} - Avg Reward: {avg_reward_last:.3f} "
-                f"Avg TD Error: {avg_td_error:.3f} Avg Regret: {avg_regret:.3f} "
+                f"Avg TD Error: {avg_td_error:.3f} "
                 f"Mistakes: {mistakes} Epsilon: {epsilon:.3f} "
                 f"Eval Avg Reward: {eval_avg_reward:.3f} Eval Win Rate: {eval_win_rate:.2f} "
-                f"Eval Avg Steps: {eval_avg_steps:.2f} Eval Avg Regret: {eval_avg_regret:.3f}"
+                f"Eval Avg Steps: {eval_avg_steps:.2f}"
             )
             agent.update_target()
             agent.save(os.path.join(MODEL_DIR, f"model_ep{ep}.pth"))
             with open(eval_csv, "a", newline="") as f:
                 csv.writer(f).writerow(
-                    [ep, eval_avg_reward, eval_win_rate, eval_avg_steps, eval_avg_regret]
+                    [ep, eval_avg_reward, eval_win_rate, eval_avg_steps]
                 )
 
     agent.save(os.path.join(MODEL_DIR, "model_final.pth"))
 
-    plt.plot(rewards)
-    plt.xlabel("Episode")
-    plt.ylabel("Total Reward")
-    plt.title("DQN Training Rewards")
-    plt.savefig("reward_plot.png")
+    if plt is not None:
+        plt.plot(rewards)
+        plt.xlabel("Episode")
+        plt.ylabel("Total Reward")
+        plt.title("DQN Training Rewards")
+        plt.savefig("reward_plot.png")
 
 
 if __name__ == "__main__":
