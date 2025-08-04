@@ -1,4 +1,4 @@
-"""Training script for a DQN agent in the simple Minecraft-like environment."""
+"""Training script for an enhanced DQN agent in a simple environment."""
 
 import csv
 import os
@@ -22,19 +22,25 @@ from replay_buffer import ReplayBuffer
 MODEL_DIR = "trained_models"
 LOAD_PATH = os.path.join(MODEL_DIR, "model_ep8000.pth")
 MISTAKE_MARGIN = 0.05
-# Train for 10k episodes, saving checkpoints every 1000 episodes
 EPISODES = 10_000
 
-BUFFER_SIZE = 10_000
+# Replay buffer and optimisation parameters
+BUFFER_SIZE = 100_000
 BATCH_SIZE = 64
-GAMMA = 0.99
+GAMMA = 0.995
+N_STEPS = 3
 
-EPS_START = 0.9
+# Exploration schedules
+EPS_START = 1.0
 EPS_END = 0.05
-EPS_DECAY_EPISODES = 10_000
+EPS_DECAY = 5_000
+TEMP_START = 1.0
+TEMP_END = 0.1
+TEMP_DECAY = 5_000
 
-EVAL_INTERVAL = 1000
+EVAL_INTERVAL = 1_000
 EVAL_EPISODES = 10
+TARGET_UPDATE_INTERVAL = 500
 
 SEED = 42
 random.seed(SEED)
@@ -46,11 +52,13 @@ print(f"Using seed {SEED}")
 
 
 def epsilon_by_episode(ep: int) -> float:
-    """Linear epsilon decay."""
-    if ep >= EPS_DECAY_EPISODES:
-        return EPS_END
-    slope = (EPS_END - EPS_START) / EPS_DECAY_EPISODES
-    return EPS_START + slope * (ep - 1)
+    """Exponential epsilon decay for more exploration early on."""
+    return EPS_END + (EPS_START - EPS_END) * np.exp(-ep / EPS_DECAY)
+
+
+def temperature_by_episode(ep: int) -> float:
+    """Temperature schedule for Boltzmann exploration."""
+    return max(TEMP_END, TEMP_START * np.exp(-ep / TEMP_DECAY))
 
 
 def evaluate(agent: DQNAgent, episodes: int) -> tuple[float, float, float, float]:
@@ -101,7 +109,7 @@ def train() -> None:
     agent = DQNAgent(state_dim, action_dim, gamma=GAMMA)
     if os.path.exists(LOAD_PATH):
         agent.load(LOAD_PATH)
-    buffer = ReplayBuffer(BUFFER_SIZE)
+    buffer = ReplayBuffer(BUFFER_SIZE, gamma=GAMMA, n_step=N_STEPS)
 
     os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -135,13 +143,13 @@ def train() -> None:
         td_errors: list[float] = []
 
         epsilon = epsilon_by_episode(ep)
+        temperature = temperature_by_episode(ep)
 
         while not done:
             q_values = agent.predict_q(state)
-            if random.random() < epsilon:
-                action = random.randrange(action_dim)
-            else:
-                action = int(np.argmax(q_values))
+            action = agent.select_action(
+                state, epsilon=epsilon, temperature=temperature, q_values=q_values
+            )
 
             q_sa = float(q_values[action])
             max_q = float(np.max(q_values))
@@ -155,9 +163,10 @@ def train() -> None:
             steps += 1
 
             if len(buffer) >= BATCH_SIZE:
-                batch = buffer.sample(BATCH_SIZE)
-                td_error = agent.train_step(batch)
-                td_errors.append(td_error)
+                batch, indices, weights = buffer.sample(BATCH_SIZE)
+                td_errs = agent.train_step(batch, weights)
+                buffer.update_priorities(indices, td_errs)
+                td_errors.append(float(np.mean(np.abs(td_errs))))
 
         avg_td_error = float(np.mean(td_errors)) if td_errors else 0.0
 
@@ -179,12 +188,14 @@ def train() -> None:
                 f"Eval Avg Reward: {eval_avg_reward:.3f} Eval Win Rate: {eval_win_rate:.2f} "
                 f"Eval Avg Steps: {eval_avg_steps:.2f}"
             )
-            agent.update_target()
             agent.save(os.path.join(MODEL_DIR, f"model_ep{ep}.pth"))
             with open(eval_csv, "a", newline="") as f:
                 csv.writer(f).writerow(
                     [ep, eval_avg_reward, eval_win_rate, eval_avg_steps]
                 )
+
+        if ep % TARGET_UPDATE_INTERVAL == 0:
+            agent.update_target()
 
     agent.save(os.path.join(MODEL_DIR, "model_final.pth"))
 
