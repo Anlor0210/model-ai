@@ -1,6 +1,7 @@
 import random
 from typing import Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -51,13 +52,24 @@ class DQNAgent:
         if random.random() < epsilon:
             return random.randrange(self.action_dim)
 
+        q_values = self.predict_q(state)
+        return int(np.argmax(q_values))
+
+    def predict_q(self, state: Tuple[int, ...]) -> np.ndarray:
+        """Return Q-values for a given state as a NumPy array."""
         state_t = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
-            q_values = self.policy_net(state_t)
-        return int(torch.argmax(q_values, dim=1).item())
+            q_values = self.policy_net(state_t).cpu().numpy()[0]
+        return q_values
 
-    def train_step(self, batch) -> None:
-        """Update the policy network using a batch of experience."""
+    def train_step(self, batch) -> float:
+        """Update the policy network using a batch of experience.
+
+        Returns
+        -------
+        float
+            Average TD error for the processed batch.
+        """
 
         states, actions, rewards, next_states, dones = batch
 
@@ -73,11 +85,14 @@ class DQNAgent:
             next_q_values = self.target_net(next_states_t).max(1)[0]
             targets = rewards_t + self.gamma * next_q_values * (1 - dones_t)
 
+        td_errors = targets - q_values
         loss = self.loss_fn(q_values, targets)
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        return float(td_errors.abs().mean().item())
 
     def update_target(self) -> None:
         """Synchronize target network with policy network."""
@@ -85,4 +100,9 @@ class DQNAgent:
 
     def save(self, path: str) -> None:
         torch.save(self.policy_net.state_dict(), path)
+
+    def load(self, path: str) -> None:
+        state_dict = torch.load(path, map_location=self.device)
+        self.policy_net.load_state_dict(state_dict)
+        self.update_target()
 
