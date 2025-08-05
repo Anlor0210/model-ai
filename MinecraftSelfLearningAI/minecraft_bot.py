@@ -121,22 +121,15 @@ class ActionHandler:
     """Map discrete actions to keyboard/mouse events."""
 
     def __init__(self) -> None:
-        # Each entry is a callable that executes the action
+        # The pre-trained checkpoint was trained with four discrete actions.
+        # Only the basic movement keys are retained here so that the network's
+        # output dimension matches the checkpoint's ``head.weight`` shape
+        # ``(4, 64)``.
         self.actions: List[callable] = [
             lambda: pyautogui.press("w"),
             lambda: pyautogui.press("a"),
             lambda: pyautogui.press("s"),
             lambda: pyautogui.press("d"),
-            lambda: pyautogui.press("space"),
-            lambda: pyautogui.moveRel(-30, 0),  # look left
-            lambda: pyautogui.moveRel(30, 0),   # look right
-            lambda: pyautogui.moveRel(0, -20),  # look up
-            lambda: pyautogui.moveRel(0, 20),   # look down
-            lambda: pyautogui.mouseDown(button="left"),
-            lambda: pyautogui.mouseUp(button="left"),
-            lambda: pyautogui.mouseDown(button="right"),
-            lambda: pyautogui.mouseUp(button="right"),
-            lambda: pyautogui.press("e"),
         ]
 
     def __len__(self) -> int:
@@ -155,8 +148,10 @@ def main() -> None:
     env = MinecraftEnvWrapper()
     actions = ActionHandler()
 
-    # Instantiate network with correct dimensions and load weights
-    model = DQN(env.state_dim, len(actions))
+    # Instantiate network with the dimensions used during training.  The first
+    # layer now expects a 6-element state vector and the output layer produces
+    # four Q-values corresponding to the retained actions.
+    model = DQN(6, 4)
     state_dict = torch.load(
         "trained_models/model_ep16000.pth", map_location=torch.device("cpu")
     )
@@ -166,7 +161,9 @@ def main() -> None:
     state = env.reset()
     while True:
         with torch.no_grad():
-            q_values = model(torch.tensor(state, dtype=torch.float32)).numpy()
+            # Only the first six elements are fed to the network so that the
+            # input size matches the checkpoint's architecture.
+            q_values = model(torch.tensor(state[:6], dtype=torch.float32)).numpy()
         action = int(np.argmax(q_values))
         actions.perform(action)
         state = env.step(action)
