@@ -49,6 +49,10 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(SEED)
 print(f"Using seed {SEED}")
 
+# Device configuration -------------------------------------------------------
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {DEVICE}")
+
 
 def epsilon_by_episode(ep: int) -> float:
     """Exponential epsilon decay for more exploration early on."""
@@ -130,6 +134,10 @@ def train() -> None:
     action_dim = 4
 
     agent = DQNAgent(state_dim, action_dim, gamma=GAMMA)
+    # Ensure the agent runs on the selected device
+    agent.device = DEVICE
+    agent.policy_net.to(DEVICE)
+    agent.target_net.to(DEVICE)
     start_ep = _load_latest_checkpoint(agent)
     buffer = ReplayBuffer(BUFFER_SIZE, gamma=GAMMA, n_step=N_STEPS)
 
