@@ -1,13 +1,13 @@
 """Minecraft inference bot using a pre-trained DQN model.
 
-This module provides a thin environment wrapper that captures the game
-screen, maintains a history of executed actions and issues keyboard / mouse
-commands based on the model's output.  It is intentionally lightweight and
-avoids game specific libraries such as Mineflayer.
+This module provides a thin environment wrapper that captures the game screen,
+parses a small inventory region and issues keyboard / mouse commands based on
+the model's output.  It is intentionally lightweight and avoids game specific
+libraries such as Mineflayer.
 
 The bot expects a Minecraft Java Edition 1.12.2 instance to be focused on the
-local machine and connected to ``localhost:25565``.  All interaction happens
-via OS‑level events (simulated key presses and relative mouse movement).
+local machine and connected to ``localhost:60025``.  All interaction happens
+via OS-level events (simulated key presses and relative mouse movement).
 
 Example
 -------
@@ -46,24 +46,37 @@ from agent import DQN
 # ---------------------------------------------------------------------------
 
 class MinecraftEnvWrapper:
-    """Capture screen and maintain action history.
+    """Capture screen, inventory bar and maintain action history.
 
     The wrapper grabs a predefined region of the screen, downsamples it and
-    flattens pixel intensities to create a compact observation vector.  A
-    deque stores the IDs of the most recent actions which are appended to the
-    observation so that the agent can reason about short term context.
+    flattens pixel intensities to create a compact observation vector.  In
+    addition, a narrow band at the bottom of the window is captured to provide a
+    coarse representation of the hotbar / inventory.  A deque stores the IDs of
+    the most recent actions which are appended to the observation so that the
+    agent can reason about short term context.
     """
 
     def __init__(self, region: Dict[str, int] | None = None, history: int = 4):
         self.sct = mss()
         # Default to 854x480 window which matches the default Minecraft size
         self.region = region or {"top": 0, "left": 0, "width": 854, "height": 480}
+
+        # A small region at the bottom is used for inventory / hotbar parsing
+        self.inv_region = {
+            "top": self.region["top"] + self.region["height"] - 60,
+            "left": self.region["left"],
+            "width": self.region["width"],
+            "height": 60,
+        }
+
         self.history: Deque[int] = deque([0] * history, maxlen=history)
         self.history_len = history
 
         # Compute state dimension by sampling once
         sample = self._capture()
+        inv_sample = self._capture_inventory()
         self.vision_dim = sample.size
+        self.inventory_dim = inv_sample.size
 
     def reset(self) -> np.ndarray:
         self.history.clear()
@@ -77,14 +90,22 @@ class MinecraftEnvWrapper:
         arr = np.asarray(img, dtype=np.float32).ravel() / 255.0
         return arr
 
+    def _capture_inventory(self) -> np.ndarray:
+        raw = self.sct.grab(self.inv_region)
+        img = Image.frombytes("RGB", raw.size, raw.rgb)
+        img = img.resize((32, 8))
+        arr = np.asarray(img, dtype=np.float32).ravel() / 255.0
+        return arr
+
     def get_state(self) -> np.ndarray:
         vision = self._capture()
+        inventory = self._capture_inventory()
         hist = np.array(self.history, dtype=np.float32)
-        return np.concatenate([vision, hist])
+        return np.concatenate([vision, inventory, hist])
 
     @property
     def state_dim(self) -> int:
-        return self.vision_dim + self.history_len
+        return self.vision_dim + self.inventory_dim + self.history_len
 
     def step(self, action: int) -> np.ndarray:
         self.history.append(action)
@@ -107,6 +128,10 @@ class ActionHandler:
             lambda: pyautogui.press("s"),
             lambda: pyautogui.press("d"),
             lambda: pyautogui.press("space"),
+            lambda: pyautogui.moveRel(-30, 0),  # look left
+            lambda: pyautogui.moveRel(30, 0),   # look right
+            lambda: pyautogui.moveRel(0, -20),  # look up
+            lambda: pyautogui.moveRel(0, 20),   # look down
             lambda: pyautogui.mouseDown(button="left"),
             lambda: pyautogui.mouseUp(button="left"),
             lambda: pyautogui.mouseDown(button="right"),
@@ -135,7 +160,7 @@ def main() -> None:
     state_dict = torch.load(
         "trained_models/model_ep16000.pth", map_location=torch.device("cpu")
     )
-    model.load_state_dict(state_dict)
+    model.load_state_dict(state_dict, strict=False)
     model.eval()
 
     state = env.reset()
