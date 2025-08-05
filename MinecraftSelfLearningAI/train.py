@@ -112,20 +112,24 @@ def evaluate(agent: DQNAgent, episodes: int) -> tuple[float, float, float, float
     return avg_reward, win_rate, avg_steps, avg_regret
 
 
-def _load_latest_checkpoint(agent: DQNAgent) -> int:
-    """Load the latest checkpoint if present and return the next episode."""
+def _load_checkpoint(agent: DQNAgent) -> int:
+    """Load a checkpoint if available and return the next episode number.
+
+    The training process should resume from ``model_ep10000.pth`` when the file
+    exists.  The state dict is loaded onto the configured ``DEVICE`` to ensure
+    compatibility across different hardware setups.  If the checkpoint is not
+    found, training starts from scratch.
+    """
+
     os.makedirs(MODEL_DIR, exist_ok=True)
-    checkpoints = [
-        f
-        for f in os.listdir(MODEL_DIR)
-        if f.startswith("model_ep") and f.endswith(".pth")
-    ]
-    if not checkpoints:
+    path = os.path.join(MODEL_DIR, "model_ep10000.pth")
+    if not os.path.isfile(path):
         return 1
-    checkpoints.sort(key=lambda x: int(x[len("model_ep") : -len(".pth")]))
-    latest = checkpoints[-1]
-    agent.load(os.path.join(MODEL_DIR, latest))
-    return int(latest[len("model_ep") : -len(".pth")]) + 1
+
+    state_dict = torch.load(path, map_location=DEVICE)
+    agent.policy_net.load_state_dict(state_dict)
+    agent.target_net.load_state_dict(state_dict)
+    return 10001
 
 
 def train() -> None:
@@ -138,7 +142,9 @@ def train() -> None:
     agent.device = DEVICE
     agent.policy_net.to(DEVICE)
     agent.target_net.to(DEVICE)
-    start_ep = _load_latest_checkpoint(agent)
+
+    # Resume training from a saved model if available
+    start_ep = _load_checkpoint(agent)
     buffer = ReplayBuffer(BUFFER_SIZE, gamma=GAMMA, n_step=N_STEPS)
 
     rewards: list[float] = []
